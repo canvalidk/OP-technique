@@ -8,8 +8,10 @@ import {
   computeOrbits,
   transformMask,
   evaluateCell,
+  evaluateCriterionCell,
   analyzeWitnessForcing,
   checkCoupling,
+  evaluateRevenge,
   evaluateGameShowBoard,
 } from "./op_model_checker.mjs";
 
@@ -117,10 +119,11 @@ test("4. Self-Affirming (SA) across regimes: Smullyan, Truth-Teller, and Löb/He
   const lob = evaluateCell({
     mask: REGIMES.NESTED.mask,
     shape: SHAPES.SA,
-    rules: { lob: true },
+    rules: { lobModalAxiom: true },
   });
   assert.deepEqual(lob.survivingX, ["YY"]);
   assert.equal(lob.outcome.code, "PINNED_BOTH");
+  assert.deepEqual(lob.importedModalRules, ["GL:Lob"]);
 
   const oppSA = evaluateCell({ mask: REGIMES.OPPOSITE.mask, shape: SHAPES.SA });
   assert.deepEqual(oppSA.survivingX, []);
@@ -322,4 +325,77 @@ test("9. Multi-valued Game-Show Board: distinguishes on-board vs global fixed po
   const revengeAdded = evaluateGameShowBoard([0, 20, 30, 40]);
   assert.deepEqual(revengeAdded.onBoardFixedPoints, []);
   assert.deepEqual(revengeAdded.allFixedPoints, []);
+});
+
+test("10. Mode B (Reflexive Criterion Self-Application): Verificationism vs Popper, VD Question Fork, Deontic", () => {
+  // Logical positivism / verificationism (verifiable / meaningful): COLLAPSE + 4 historical exits
+  const ayer = evaluateCriterionCell({
+    name: "Verificationism",
+    proposedMask: REGIMES.REVERSE_NESTED.mask, // meaningful => verifiable
+    selfApplies: true,
+    itemConstraints: { requiresQ2Y: true, requiresQ1N: true },
+  });
+  assert.deepEqual(ayer.survivingX, []);
+  assert.equal(ayer.outcome.code, "COLLAPSE");
+  assert.deepEqual(
+    ayer.exitMenu.map((e) => e.droppedRule).sort(),
+    ["proposedMask", "requiresQ1N", "requiresQ2Y", "selfApplies"]
+  );
+
+  // Popper's falsificationism (falsifiable / scientific): same mask & Q1=N, but requiresQ2Y=false -> {NN} survives!
+  const popper = evaluateCriterionCell({
+    name: "Falsificationism",
+    proposedMask: REGIMES.REVERSE_NESTED.mask, // scientific => falsifiable
+    selfApplies: true,
+    itemConstraints: { requiresQ2Y: false, requiresQ1N: true },
+  });
+  assert.deepEqual(popper.survivingX, ["NN"]);
+  assert.equal(popper.outcome.code, "PINNED_BOTH");
+  assert.equal(popper.exitMenu.length, 0);
+
+  // VD Question Fork (question / has an answer): "every question has an answer" vs Liar-question
+  const vdFork = evaluateCriterionCell({
+    name: "VD Question Fork",
+    proposedMask: REGIMES.NESTED.mask, // question => has an answer
+    selfApplies: true,
+    itemConstraints: { requiresQ1Y: true, requiresQ2N: true },
+  });
+  assert.deepEqual(vdFork.survivingX, []);
+  const dropIsQuestion = vdFork.exitMenu.find((e) => e.droppedRule === "requiresQ1Y");
+  const dropEveryHasAnswer = vdFork.exitMenu.find((e) => e.droppedRule === "proposedMask");
+  assert.deepEqual(dropIsQuestion.survivingIfDropped, ["NN"]); // Can's VD branch: not a question
+  assert.deepEqual(dropEveryHasAnswer.survivingIfDropped, ["YN"]); // Alternative: question with no answer
+
+  // Deontic self-forbidding norm (obligatory / permissible, Axiom D = NESTED)
+  const deontic = evaluateCriterionCell({
+    name: "Deontic Self-Forbidding Norm",
+    envMask: REGIMES.NESTED.mask, // obligatory => permissible
+    itemConstraints: { requiresQ1Y: true, requiresQ2N: true },
+  });
+  assert.deepEqual(deontic.survivingX, []);
+});
+
+test("11. Three-Valued Revenge {Y, N, G} vs. Two-Arrow Disciplined-Interpreter Model", () => {
+  const rev = evaluateRevenge();
+
+  // Plain Liar-question in 3-valued logic
+  assert.deepEqual(rev.plainLiarExclusion, []);
+  assert.deepEqual(rev.plainLiarInfectiousGap, ["G"]);
+
+  // Flat single-level Revenge ("Is the answer No, or is this gibberish?"): Priest's collapse
+  assert.deepEqual(rev.revengeFlat, []);
+
+  // Two-Arrow model (Meaning I ∈ {Y, N, ⊥}, Accuracy A ∈ {Y, N}):
+  // Unconstrained allows unsound convergence or sound non-convergence
+  assert.deepEqual(rev.twoArrowUnconstrained, [
+    { I: "Y", A: "N" },
+    { I: "N", A: "Y" },
+    { I: "⊥", A: "Y" },
+  ]);
+
+  // Requiring Soundness uniquely pins (I = ⊥, A = Y) — Turing incompleteness, NO dialetheism!
+  assert.deepEqual(rev.twoArrowSound, [{ I: "⊥", A: "Y" }]);
+
+  // Adding Totality (I ≠ ⊥) yields ∅ — Sound + Total interpreter cannot exist
+  assert.deepEqual(rev.twoArrowSoundAndTotal, []);
 });

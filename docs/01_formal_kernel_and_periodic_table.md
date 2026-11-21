@@ -1,21 +1,18 @@
-# Formal OP Kernel and Periodic Table (Pass 1)
+# Formal OP Kernel and Periodic Table (Pass 1.1)
 
-**Status:** Pass 1 formalization — verified computationally by [`engine/op_model_checker.mjs`](../engine/op_model_checker.mjs) and [`engine/verify.test.mjs`](../engine/verify.test.mjs) (all 9 test suites passing).
+**Status:** Pass 1.1 formalization — verified computationally by [`engine/op_model_checker.mjs`](../engine/op_model_checker.mjs) and [`engine/verify.test.mjs`](../engine/verify.test.mjs) (all 11 test suites passing).
 **Relationship to informal OP:** Informal OP ([`origins/op_technique_overlapping_problems_2026-11-12.md`](../origins/op_technique_overlapping_problems_2026-11-12.md)) is heuristic advice for exploring pre-formal conceptual terrain without committing to a formal ansatz. This document introduces the **lightweight formal counterpart**: a minimal finite-model constraint algebra with **no hidden background logic** — every bridge rule is declared explicitly as a parameter of the row.
 
 ---
 
-## 1. Anti-Ansatz Design Principle
+## 1. Anti-Ansatz Design Principle — Two Coupling Modes
 
-Formalizing OP in a heavy system (category theory, typed set theory, or a paraconsistent logic) risks smuggling philosophical commitments in at the start. To avoid turning OP into an ansatz, the formal kernel uses only:
+Formalizing OP in a heavy system (category theory, typed set theory, or a paraconsistent logic) risks smuggling philosophical commitments in at the start. To avoid turning OP into an ansatz — **and** to avoid forcing non-truth rows into a truth-centric mold — the formal kernel uses only explicit finite masks and supports **two distinct coupling modes**:
 
-1. A finite domain of items $D = \{0, 1, \dots, n-1\}$, where item $x = 0$ is the candidate **Aligning Statement**.
-2. Two binary assignment maps $Q_1, Q_2 : D \to \{Y, N\}$.
-3. An explicit **global bridge mask** $B \subseteq S$, where $S = \{YY, YN, NY, NN\}$ lists the four joint states $(Q_1(y), Q_2(y))$.
-4. A **T-link** (satisfaction coupling) on $x$: $Q_2(x) = Y \iff \text{the condition stated by } x \text{ holds in } (D, Q_1, Q_2)$.
-5. Zero or more **explicitly declared extra rules** (performative triggering, reflection, conjunction distribution, dissenter existence, etc.).
+- **Mode A — Truth-Coupled (`evaluateCell`):** Used when $Q_2$ evaluates satisfaction/truth (or the erotetic T-schema). We fix a finite domain $D = \{0, 1, \dots, n-1\}$ with Aligning Statement $x = 0$, two binary maps $Q_1, Q_2 : D \to \{Y, N\}$, a global bridge mask $B \subseteq S = \{YY, YN, NY, NN\}$, the T-link $Q_2(x) = Y \iff \text{the condition stated by } x \text{ holds in } (D, Q_1, Q_2)$, and any explicitly declared extra rules.
+- **Mode B — Reflexive Criterion Self-Application (`evaluateCriterionCell`):** Used on **non-truth rows** where $Q_2$ is *not* truth (e.g., `verifiable / meaningful`, `falsifiable / scientific`, `question / has an answer`, `obligatory / permissible`). Here a candidate criterion $C$ *proposes* a bridge mask $B_C \subseteq S$ between $Q_1$ and $Q_2$, and we test whether $C$ itself (or an adversarial item) survives under explicitly declared constraints (`selfApplies`, `requiresQ1Y/N`, `requiresQ2Y/N`, `envMask`). Whenever $V(x) = \emptyset$, the engine automatically computes the single-rule **Exit Menu** (every rule whose removal restores satisfiability).
 
-Nothing is assumed about what the "real" answers to $Q_1$ or $Q_2$ are. We simply enumerate all $4^n$ assignments on $D$, keep the models that satisfy the declared rules, and read off the **surviving state set** $V(x) \subseteq S$.
+Nothing is assumed about what the "real" answers to $Q_1$ or $Q_2$ are. We simply enumerate all assignments, keep the models that satisfy the declared rules, and read off the **surviving state set** $V(x) \subseteq S$.
 
 ---
 
@@ -115,7 +112,7 @@ Every classic argument not already produced by the base table requires a specifi
 | Historical Landmark | Base Cell | Declared Extra Rule | Verified Outcome $V(x)$ |
 |---|---|---|---|
 | **Kaplan–Montague Knower** | `NESTED × SD` | `reflection` (if base rules force $Q_2(x)=Y$, then $Q_1(x)=Y$) | **$\emptyset$** (pass 1 pins $\{NY\}$; pass 2 kills it) |
-| **Henkin / Löb** | `NESTED × SA` | `lob` (provable soundness + SA forces $Q_1(x)=Y$) | **$\{YY\}$** |
+| **Henkin / Löb** | `NESTED × SA` | `lobModalAxiom` *(imported from provability logic `GL`: $\Box(\Box P \to P) \to \Box P$ — not derived from 4-cell algebra)* | **$\{YY\}$** |
 | **Cogito / Augustine / *"Are there any questions?"*** | `FREE × EY` | `performative` (asking/doubting/conceiving $x$ makes $Q_1(x)=Y$) | **$\{YY\}$** |
 | **Prior's Theorem (1961)** | `FREE × BR_CONTRA` | `performative` (someone believes *"every belief is false"*) | $\emptyset$ at $n=1$; **$\{YN\}$** at $n \ge 2$, **forcing $\exists y \neq x$ in $YY$** |
 | **Protagoras (*Theaetetus*)** | `FREE × BR_IMP` | `dissenter` ($\exists z$ asserting $\neg x$ with $Q_1(z)=Y$) | **$\{YN\}$** at $n=2$; **$\{YN, NN\}$** ($Q_2=N$) at $n \ge 3$ |
@@ -124,6 +121,23 @@ Every classic argument not already produced by the base table requires a specifi
 | **Cantor / Russell** | `OPPOSITE` | `diagonalEquality` (constructed diagonal item has $Q_1(x)=Q_2(x)$) | **$\emptyset$** |
 
 **Subtle model-checker catch on Protagoras:** Without a dissenter, `FREE × BR_IMP` leaves all 4 states open. With a dissenter $z = \neg x$ believed ($Q_1(z)=Y$), in a 2-statement universe $\{x, \neg x\}$ the state `NN` (*nobody believes Protagoras's thesis, and it's false*) is **impossible** — because $\neg x$ would be true and believed while $x$ is unbelieved, making every belief in $\{x, \neg x\}$ true! So at $n=2$ only `YN` survives; `NN` only opens up at $n \ge 3$ and **forces a third statement $w$ in state `YN`** (some other false belief).
+
+**Transparency note on `lobModalAxiom`:** Unlike `reflection` (which emerges dynamically from a 2-pass check when pass 1 already forces $Q_2(x) = Y$), Löb's forcing of `SA` to `{YY}` does *not* follow from bare 4-cell masking. It is flagged explicitly in the engine (`importedModalRules: ["GL:Lob"]`) as an imported modal rule so Henkin/Löb can be mapped alongside the other cells without pretending the 4-cell table derived it.
+
+---
+
+## 5b. Mode B: Reflexive Criterion Self-Application (Non-Truth Rows)
+
+When $Q_2$ is *not* truth, an Aligning Statement is often a **criterion** $C$ proposing a bridge mask $B_C$ between $Q_1$ and $Q_2$, tested against itself or against an adversarial item (`evaluateCriterionCell`, Test 10):
+
+| Case | $(Q_1, Q_2)$ | Proposed Mask $B_C$ | Target Constraints | Outcome $V(x)$ | Auto-Computed Exit Menu |
+|---|---|---|---|---|---|
+| **Verificationism (Ayer)** | `verifiable / meaningful` | `REVERSE_NESTED` ($Q_2 \Rightarrow Q_1$) | `requiresQ2Y` (must be meaningful) + `requiresQ1N` (unverifiable) | **$\emptyset$** | 1. Drop `selfApplies` $\to \{NY\}$ (Carnap meta-level)<br>2. Drop `proposedMask` $\to \{NY\}$ (reject criterion)<br>3. Drop `requiresQ1N` $\to \{YY\}$ (Ayer 1946: analytic)<br>4. Drop `requiresQ2Y` $\to \{NN\}$ (Wittgenstein ladder) |
+| **Falsificationism (Popper)** | `falsifiable / scientific` | `REVERSE_NESTED` ($Q_2 \Rightarrow Q_1$) | `requiresQ2Y = false` + `requiresQ1N` (unfalsifiable) | **$\{NN\}$** | None needed — survives cleanly as non-scientific methodology |
+| **VD Question Fork** | `question / has an answer` | `NESTED` ($Q_1 \Rightarrow Q_2$) | Adversarial Liar-question: `requiresQ1Y` + `requiresQ2N` | **$\emptyset$** | 1. Drop `requiresQ1Y` $\to \{NN\}$ (VD axiom: not a question)<br>2. Drop `proposedMask` $\to \{YN\}$ (unanswerable question)<br>3. Drop `requiresQ2N` $\to \{YY\}$ (non-classical / dialetheic) |
+| **Deontic Self-Forbidding Norm** | `obligatory / permissible` | `envMask = NESTED` (Axiom D: $Q_1 \Rightarrow Q_2$) | `requiresQ1Y` + `requiresQ2N` | **$\emptyset$** | Drop obligation, drop prohibition, or drop Axiom D |
+
+**Structural takeaway:** Verificationism and falsificationism have the **exact same** proposed bridge mask ($Q_2 \Rightarrow Q_1$) and the **exact same** failure of $Q_1$ (`requiresQ1N`). The *entire* structural difference between why logical positivism self-destructed and Popper's demarcation rule survived is a **single Boolean switch: `requiresQ2Y`**.
 
 ---
 
@@ -140,11 +154,22 @@ The formal kernel implements a 3-way **coupling gate** (`checkCoupling` in `engi
 
 ---
 
-## 7. Beyond Binary: Multi-Valued Fixed Points and Scope Boundaries
+## 7. Beyond Binary: Three-Valued Revenge, Multi-Valued Fixed Points, and Scope Boundaries
 
-Three boundaries mark where bare $\{Y, N\}^2$ models stop and need an explicit extension:
+Four boundaries mark where bare $\{Y, N\}^2$ models stop and need an explicit extension:
 
-1. **Multi-valued fixed points (the Millionaire game-show board).**
+1. **Three-valued Revenge vs. Two-Arrow Disciplined Interpreters (`evaluateRevenge`, Test 11).**
+   To test the exact fork from [`origins/what_is_a_question_op_run_2026-11-12.md`](../origins/what_is_a_question_op_run_2026-11-12.md) §8 against Priest's objections (*Beyond the Limits of Thought*, pp. 168–170, 253–254), the engine evaluates polar questions over $T_3 = \{Y, N, G\}$ (`Yes / No / Gibberish`) and compares flat single-level evaluation against *The Chain*'s two-arrow split (**Meaning**: concrete interpreter output $I \in \{Y, N, \bot\}$, vs. **Accuracy**: external observer truth $A \in \{Y, N\}$):
+
+   | Setup | Surviving Values / Pairs | What It Shows |
+   |---|---|---|
+   | Plain Liar in $\{Y, N, G\}$ (classical exclusion) | $\emptyset$ | Calling it `G` makes `"answer = No"` false (`N`), restarting the loop |
+   | Plain Liar in $\{Y, N, G\}$ (infectious gap / weak Kleene) | $\{G\}$ | Survives only until `"gibberish"` becomes expressible |
+   | Revenge (`"answer = No, or gibberish?"`, flat 1-level) | $\emptyset$ | **Priest's revenge collapse:** calling it `G` makes the disjunct true (`Y`) |
+   | Revenge on **Two-Arrow Sound Interpreter $I$** | $\{(I = \bot,\, A = Y)\}$ | **No dialetheism:** a sound concrete interpreter $I$ simply fails to converge ($\bot$) while an outside observer accurately notes $A = Y$ |
+   | Revenge on **Two-Arrow Sound + Total Interpreter $I$** | $\emptyset$ | Reproves the **Turing / Gödel trade-off**: no interpreter can be both sound and total on its own convergence predicate |
+
+2. **Multi-valued fixed points (the Millionaire game-show board).**
    For *"If you choose an answer to this question at random, what is the chance that you will be correct?"* with options $o_1, \dots, o_k$, a probability $p \in [0, 100\%]$ is a valid answer iff it is a fixed point of:
    $$f(p) = \frac{100}{k}\,\#\{i : o_i = p\}.$$
    Running `evaluateGameShowBoard` exposes a hidden rule missed in the original informal notes:
@@ -158,10 +183,11 @@ Three boundaries mark where bare $\{Y, N\}^2$ models stop and need an explicit e
    | `[10%, 20%, 30%, 40%]` | none | `0%` (off-board works) | Broken question diagnosable from outside |
    | `[0%, 20%, 30%, 40%]` | none | none | Adding `0%` turns an outside diagnosis into revenge collapse |
 
-2. **Modal / ordering structure.**
+3. **Modal / ordering / temporal structure.**
    - **Fitch's modal step** distinguishes actual knowledge ($K$) from knowability ($\Diamond K$); in the binary kernel, universal knowability appears as elevating `NESTED` to `MIRROR` on the modal pair.
    - **Anselm / Gaunilo** relies on a comparative order (`greater than`) plus Priest's Characterisation Principle, not just two bare binary predicates.
-3. **Quantitative symmetry arguments (out of scope).**
+   - **Suber's Paradox of Self-Amendment** (repealing an amendment clause via itself) involves a **temporal state transition** ($t \to t+1$), going beyond static single-snapshot criterion masks.
+4. **Quantitative symmetry arguments (out of scope).**
    Functional-equation / involution arguments (such as swapping $m \leftrightarrow m^{-1}$ in the VD mass estimator to pin a prior centre $c = \sigma_F/\sigma_a$ while leaving the shape free) are better handled by invariance groups and functional equations than stretched into OP.
 
 ---

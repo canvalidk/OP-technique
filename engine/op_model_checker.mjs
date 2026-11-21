@@ -5,10 +5,21 @@
  * Minimal, zero-dependency formal engine for the Overlapping Problems (OP) technique.
  *
  * Design principle (anti-ansatz):
- *   No heavy background logic is smuggled in. A binary OP row is specified solely by
- *   an explicit global bridge mask B ⊆ {YY, YN, NY, NN} plus any explicitly declared
- *   extra rules (performative, reflection, conjunctionDist, dissenter, etc.). All
- *   checks are performed by exhaustive enumeration over finite domains D = {0, ..., n-1}.
+ *   No heavy background logic is smuggled in. Every bridge rule is declared explicitly
+ *   as a parameter of the run. The engine supports two binary coupling modes plus two
+ *   multi-valued / stratified extensions:
+ *
+ *   1. Mode A — Truth-Coupled (`evaluateCell`):
+ *        Q2(x) evaluates whether x's relational formula holds in finite models (D, Q1, Q2).
+ *   2. Mode B — Reflexive Criterion Self-Application (`evaluateCriterionCell`):
+ *        Q2 need NOT be truth. A candidate criterion C proposes a bridge mask B_C between
+ *        Q1 and Q2, and the engine tests whether C (or an adversarial item) survives its
+ *        own rule — and automatically computes the Minimal Exit Menu on collapse (∅).
+ *   3. Three-Valued Revenge & Two-Arrow Interpreter Check (`evaluateRevenge`):
+ *        Compares flat {Y, N, G} evaluation (Priest's revenge collapse) against the
+ *        two-arrow disciplined-interpreter model (Meaning I ∈ {Y, N, ⊥} vs. Accuracy A ∈ {Y, N}).
+ *   4. Multi-Valued Fixed-Point Board (`evaluateGameShowBoard`):
+ *        Evaluates finite self-referential probability boards (Millionaire problem).
  */
 
 import { pathToFileURL } from "node:url";
@@ -191,7 +202,7 @@ export const REGIMES = Object.freeze({
 });
 
 // ---------------------------------------------------------------------------
-// 4. Canonical Aligning-Statement shapes (relational satisfaction semantics)
+// 4. Mode A: Truth-Coupled Aligning-Statement shapes
 //    Element 0 is the Aligning Statement x.
 //    Element 1 (when domainSize >= 2) is an auxiliary target p or dissenter z.
 // ---------------------------------------------------------------------------
@@ -269,10 +280,6 @@ export const SHAPES = Object.freeze({
   },
 });
 
-// ---------------------------------------------------------------------------
-// 5. Exhaustive finite-model enumerator & witness-forcing analyzer
-// ---------------------------------------------------------------------------
-
 function enumerateModels(allowedMask, domainSize) {
   const results = [];
   const current = new Array(domainSize);
@@ -292,25 +299,20 @@ function enumerateModels(allowedMask, domainSize) {
 }
 
 /**
- * Evaluate an OP cell by exhaustive finite-model checking.
+ * Mode A — Evaluate a Truth-Coupled OP cell by exhaustive finite-model checking.
  *
- * @param {object} config
- * @param {string[]} config.mask                Global bridge-rule mask B ⊆ S
- * @param {object}   config.shape               One of SHAPES.*
- * @param {number}   [config.domainSize=2]      Number of elements in D (>= shape.minDomain)
- * @param {object}   [config.rules={}]          Explicitly declared extra rules:
- *   - performative:       Q1(x) = Y (considering/uttering x triggers Q1 on x)
- *   - conjunctionDist:    Q1(x) = Y ⇒ Q1(p) = Y (for CONJ)
- *   - unknownTruthTarget: Q2(p) = Y ∧ Q1(p) = N (for CONJ / Fitch)
- *   - dissenter:          element 1 asserts ¬x (Q2(1) = ¬Q2(0)) and Q1(1) = Y (Protagoras)
- *   - witnessNotQ1:       ∃y, Q1(y) = N (someone disagrees/doubts something)
- *   - reflection:         2-pass rule: if base models force Q2(x) = Y, add Q1(x) = Y
- *   - lob:                if Nesting holds (YN banned) and shape is SA, add Q1(x) = Y
- *   - diagonalEquality:   forces Q1(x) = Q2(x) on x (Cantor/Russell diagonal self-application)
+ * Extra rules are split honestly between:
+ *   - Relational/domain rules: performative, conjunctionDist, unknownTruthTarget,
+ *     dissenter, witnessNotQ1, diagonalEquality, reflection (2-pass).
+ *   - Imported modal axiom: lobModalAxiom — NOT derived from 4-cell algebra; imports
+ *     Löb's theorem from provability logic GL (□(□P → P) → □P) so Henkin/Löb can be
+ *     placed accurately in the same grid.
  */
 export function evaluateCell({ mask, shape, domainSize = 2, rules = {} }) {
   const n = Math.max(domainSize, shape.minDomain, rules.dissenter ? 2 : 1);
   const allowed = canonicalStates(mask);
+  const importedModalRules = [];
+  if (rules.lobModalAxiom) importedModalRules.push("GL:Lob");
 
   const filterBase = (models) =>
     models.filter((m) => {
@@ -321,7 +323,7 @@ export function evaluateCell({ mask, shape, domainSize = 2, rules = {} }) {
       if (rules.unknownTruthTarget && !(q2Of(m[1]) && !q1Of(m[1]))) return false;
       if (rules.dissenter && !(q2Of(m[1]) === !q2Of(m[0]) && q1Of(m[1]))) return false;
       if (rules.witnessNotQ1 && !m.some((s) => !q1Of(s))) return false;
-      if (rules.lob && !allowed.includes("YN") && shape.id === "SA" && !q1Of(m[0])) {
+      if (rules.lobModalAxiom && !allowed.includes("YN") && shape.id === "SA" && !q1Of(m[0])) {
         return false;
       }
       return true;
@@ -341,7 +343,6 @@ export function evaluateCell({ mask, shape, domainSize = 2, rules = {} }) {
   const survivingX = canonicalStates(survivingModels.map((m) => m[0]));
   const outcome = classifyOutcome(survivingX);
 
-  // Witness forcing: for each surviving state s of x, what states of y != x are forced?
   const witnessRequirements = {};
   if (n >= 2) {
     for (const s of survivingX) {
@@ -364,19 +365,18 @@ export function evaluateCell({ mask, shape, domainSize = 2, rules = {} }) {
   }
 
   return {
+    mode: "TRUTH_COUPLED",
     domainSize: n,
     survivingModelsCount: survivingModels.length,
     survivingX,
     outcome,
     reflectionFired,
+    importedModalRules,
     witnessRequirements,
     models: survivingModels,
   };
 }
 
-/**
- * Compare n=1 against n=2 to detect states that require a distinct second item y != x.
- */
 export function analyzeWitnessForcing({ mask, shape, rules = {} }) {
   if (shape.minDomain > 1 || rules.dissenter) {
     return { applicable: false, reason: "Shape or rule already requires |D| >= 2." };
@@ -394,15 +394,143 @@ export function analyzeWitnessForcing({ mask, shape, rules = {} }) {
 }
 
 // ---------------------------------------------------------------------------
-// 6. Coupling / Refusal criterion checker
+// 5. Mode B: Reflexive Criterion Self-Application (Non-Truth Rows)
 // ---------------------------------------------------------------------------
 
 /**
- * Checks whether an assignment restriction is genuinely OP-coupled or
- * trivially settled by an independent single-question property (e.g.,
- * "This sentence is not written in English", where Q1 is directly inspected
- * from syntax before Q2 enters).
+ * Mode B — Evaluate a non-truth row where a candidate criterion C proposes a bridge
+ * mask `proposedMask` between Q1 and Q2, and we test whether a target item x
+ * (either C itself under self-application, or an adversarial item a) survives under
+ * a set of explicitly named constraints.
+ *
+ * When the surviving set is ∅ (COLLAPSE), automatically computes the single-rule
+ * `exitMenu`: every active constraint whose individual removal restores satisfiability.
+ *
+ * @param {object} config
+ * @param {string}   [config.name]
+ * @param {string[]} [config.envMask=STATES]     Ambient row law (e.g., Deontic Axiom D: Q1⇒Q2)
+ * @param {string[]} [config.proposedMask=STATES] Bridge mask proposed by criterion C
+ * @param {boolean}  [config.selfApplies=true]   Whether C's proposedMask applies to x
+ * @param {object}   [config.itemConstraints={}] Explicit predicates asserted of x:
+ *   - requiresQ1Y / requiresQ1N  (e.g., failsQ1: verificationism is not verifiable)
+ *   - requiresQ2Y / requiresQ2N  (e.g., selfQualifiesQ2: a rule of meaning must be meaningful)
+ *   - customMask: string[]       (optional explicit subset of S for x)
+ * @param {object}   [config.labels={}]          Optional human-readable labels for exitMenu
  */
+export function evaluateCriterionCell({
+  name = "unnamed criterion",
+  envMask = STATES,
+  proposedMask = STATES,
+  selfApplies = true,
+  itemConstraints = {},
+  labels = {},
+}) {
+  const activeConstraints = [];
+
+  if (canonicalStates(envMask).length < 4) {
+    activeConstraints.push({
+      id: "envMask",
+      label: labels.envMask || `Ambient row rule ${formatStates(envMask)}`,
+      mask: canonicalStates(envMask),
+    });
+  }
+
+  if (selfApplies && canonicalStates(proposedMask).length < 4) {
+    activeConstraints.push({
+      id: "proposedMask_and_selfApplies",
+      label:
+        labels.proposedMask ||
+        `Criterion's proposed rule ${formatStates(proposedMask)} applied to target`,
+      mask: canonicalStates(proposedMask),
+    });
+  }
+
+  if (itemConstraints.requiresQ1Y) {
+    activeConstraints.push({
+      id: "requiresQ1Y",
+      label: labels.requiresQ1Y || "Target satisfies Q1 (Q1(x) = Y)",
+      mask: ["YY", "YN"],
+    });
+  }
+  if (itemConstraints.requiresQ1N) {
+    activeConstraints.push({
+      id: "requiresQ1N",
+      label: labels.requiresQ1N || "Target fails Q1 (Q1(x) = N)",
+      mask: ["NY", "NN"],
+    });
+  }
+  if (itemConstraints.requiresQ2Y) {
+    activeConstraints.push({
+      id: "requiresQ2Y",
+      label: labels.requiresQ2Y || "Target requires Q2 (Q2(x) = Y)",
+      mask: ["YY", "NY"],
+    });
+  }
+  if (itemConstraints.requiresQ2N) {
+    activeConstraints.push({
+      id: "requiresQ2N",
+      label: labels.requiresQ2N || "Target fails Q2 (Q2(x) = N)",
+      mask: ["YN", "NN"],
+    });
+  }
+  if (itemConstraints.customMask) {
+    activeConstraints.push({
+      id: "customMask",
+      label: labels.customMask || `Target constraint ${formatStates(itemConstraints.customMask)}`,
+      mask: canonicalStates(itemConstraints.customMask),
+    });
+  }
+
+  const intersectAll = (constraints) =>
+    STATES.filter((s) => constraints.every((c) => c.mask.includes(s)));
+
+  const survivingX = intersectAll(activeConstraints);
+  const outcome = classifyOutcome(survivingX);
+
+  // Automatic Exit Menu when collapse occurs: drop each active constraint one by one
+  const exitMenu = [];
+  if (survivingX.length === 0) {
+    for (const c of activeConstraints) {
+      const withoutC = activeConstraints.filter((other) => other.id !== c.id);
+      const rescued = intersectAll(withoutC);
+      if (rescued.length > 0) {
+        if (c.id === "proposedMask_and_selfApplies") {
+          // Expose both conceptually distinct exits bundled in self-application of C:
+          exitMenu.push({
+            droppedRule: "selfApplies",
+            label: labels.dropSelfApplies || "Exempt criterion from its own domain (meta-level split)",
+            survivingIfDropped: rescued,
+          });
+          exitMenu.push({
+            droppedRule: "proposedMask",
+            label: labels.dropProposedMask || "Reject or weaken the criterion itself",
+            survivingIfDropped: rescued,
+          });
+        } else {
+          exitMenu.push({
+            droppedRule: c.id,
+            label: `Drop: ${c.label}`,
+            survivingIfDropped: rescued,
+          });
+        }
+      }
+    }
+  }
+
+  return {
+    mode: "CRITERION_SELF_APPLICATION",
+    name,
+    survivingX,
+    outcome,
+    activeConstraints: activeConstraints.map((c) => ({ id: c.id, label: c.label, mask: c.mask })),
+    exitMenu,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// 6. Coupling / Refusal criterion checker
+// ---------------------------------------------------------------------------
+
 export function checkCoupling({
   mask,
   shape,
@@ -468,17 +596,71 @@ export function checkCoupling({
 }
 
 // ---------------------------------------------------------------------------
-// 7. Multi-valued fixed-point extension (Millionaire game-show board)
+// 7. Three-Valued Revenge & Two-Arrow Disciplined-Interpreter Check
 // ---------------------------------------------------------------------------
 
 /**
- * Evaluates a multi-valued self-referential probability board:
- *   "If you pick an option at random, what is the chance you will be correct?"
- *
- * Separates:
- *   - onBoardFixedPoints: fixed points p ∈ optionsPercent (assuming hidden rule "an option must be right")
- *   - allFixedPoints:     fixed points p ∈ [0, 100], including off-board p = 0% ("none of the options")
+ * Evaluates polar self-referential questions in 3-valued {Y, N, G} ("Yes / No / Gibberish")
+ * and contrasts flat single-level evaluation against the two-arrow disciplined-interpreter
+ * model (Meaning: interpreter output I ∈ {Y, N, ⊥} vs. Accuracy: external truth A ∈ {Y, N}).
  */
+export function evaluateRevenge() {
+  const T3 = ["Y", "N", "G"];
+
+  // 7a. Plain Liar-question: "Is the answer to this question No?"
+  // Under classical-exclusion semantics: for v=G, "v === N" is FALSE ("N"), so G fails too.
+  const plainLiarExclusion = T3.filter((v) => {
+    const propTruth = v === "N" ? "Y" : "N";
+    return v === propTruth;
+  });
+
+  // Under weak-Kleene / Bochvar infectious-gap semantics: v=G propagates G to the whole question.
+  const plainLiarInfectiousGap = T3.filter((v) => {
+    if (v === "G") return true;
+    const propTruth = v === "N" ? "Y" : "N";
+    return v === propTruth;
+  });
+
+  // 7b. Revenge Question: "Is the answer to this question No, or is this gibberish?"
+  // Flat single-level: calling it G makes "this is gibberish" TRUE ("Y"), killing G!
+  const revengeFlat = T3.filter((v) => {
+    const propTruth = v === "N" || v === "G" ? "Y" : "N";
+    return v === propTruth;
+  });
+
+  // 7c. Two-Arrow Disciplined-Interpreter Model (The Chain / VD):
+  //   I(R) ∈ {Y, N, ⊥}  (what concrete interpreter I actually produces; ⊥ = non-convergence)
+  //   A(R) ∈ {Y, N}     (external observer's accuracy check of "I(R)=N ∨ I(R)=⊥")
+  const I_VALS = ["Y", "N", "⊥"];
+  const A_VALS = ["Y", "N"];
+  const allPairs = [];
+  for (const I of I_VALS) {
+    for (const A of A_VALS) {
+      const holds = I === "N" || I === "⊥" ? "Y" : "N";
+      if (A === holds) allPairs.push({ I, A });
+    }
+  }
+
+  // Soundness of I: whenever I converges (I ≠ ⊥), its output matches external accuracy A.
+  const soundPairs = allPairs.filter(({ I, A }) => I === "⊥" || I === A);
+
+  // Soundness + Totality (I ≠ ⊥): Turing / Gödel impossibility!
+  const soundAndTotalPairs = soundPairs.filter(({ I }) => I !== "⊥");
+
+  return {
+    plainLiarExclusion,
+    plainLiarInfectiousGap,
+    revengeFlat,
+    twoArrowUnconstrained: allPairs,
+    twoArrowSound: soundPairs,
+    twoArrowSoundAndTotal: soundAndTotalPairs,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// 8. Multi-valued fixed-point extension (Millionaire game-show board)
+// ---------------------------------------------------------------------------
+
 export function evaluateGameShowBoard(optionsPercent) {
   const k = optionsPercent.length;
   const uniqueOnBoard = [...new Set(optionsPercent)].sort((a, b) => a - b);
@@ -510,7 +692,7 @@ export function evaluateGameShowBoard(optionsPercent) {
 }
 
 // ---------------------------------------------------------------------------
-// 8. CLI report generator
+// 9. CLI report generator
 // ---------------------------------------------------------------------------
 
 function runCliReport() {
@@ -519,12 +701,10 @@ function runCliReport() {
     console.log(
       `  |B|=${o.size} | count=${String(o.cardinality).padEnd(2)} | ${o.label}`
     );
-    console.log(
-      `         members: ${o.members.map(formatStates).join("  ")}`
-    );
+    console.log(`         members: ${o.members.map(formatStates).join("  ")}`);
   }
 
-  console.log("\n=== 2. BASE PERIODIC TABLE (domainSize = 2, no extra rules) ===");
+  console.log("\n=== 2. MODE A: BASE PERIODIC TABLE (domainSize = 2, no extra rules) ===");
   const baseShapes = [
     SHAPES.SA,
     SHAPES.SD,
@@ -544,8 +724,7 @@ function runCliReport() {
     REGIMES.OPPOSITE,
   ];
 
-  const header =
-    "Shape".padEnd(14) + regimes.map((r) => r.id.padEnd(18)).join("");
+  const header = "Shape".padEnd(14) + regimes.map((r) => r.id.padEnd(18)).join("");
   console.log(header);
   console.log("-".repeat(header.length));
 
@@ -561,7 +740,47 @@ function runCliReport() {
     console.log(row);
   }
 
-  console.log("\n=== 3. MULTI-VALUED GAME-SHOW BOARDS ===");
+  console.log("\n=== 3. MODE B: CRITERION SELF-APPLICATION (NON-TRUTH ROWS) ===");
+  const ayer = evaluateCriterionCell({
+    name: "Verificationism (verifiable / meaningful)",
+    proposedMask: REGIMES.REVERSE_NESTED.mask, // meaningful => verifiable
+    selfApplies: true,
+    itemConstraints: { requiresQ2Y: true, requiresQ1N: true },
+    labels: {
+      requiresQ2Y: "Criterion must itself be meaningful",
+      requiresQ1N: "Criterion is neither empirically verifiable nor analytic",
+    },
+  });
+  const popper = evaluateCriterionCell({
+    name: "Falsificationism (falsifiable / scientific)",
+    proposedMask: REGIMES.REVERSE_NESTED.mask, // scientific => falsifiable
+    selfApplies: true,
+    itemConstraints: { requiresQ2Y: false, requiresQ1N: true },
+    labels: {
+      requiresQ1N: "Demarcation criterion is not empirically falsifiable",
+    },
+  });
+  console.log(`  ${ayer.name}: ${formatStates(ayer.survivingX)} — ${ayer.outcome.summary}`);
+  for (const ex of ayer.exitMenu) {
+    console.log(`      exit [${ex.droppedRule}]: ${ex.label} -> ${formatStates(ex.survivingIfDropped)}`);
+  }
+  console.log(`  ${popper.name}: ${formatStates(popper.survivingX)} — ${popper.outcome.summary}`);
+
+  console.log("\n=== 4. THREE-VALUED REVENGE vs. TWO-ARROW INTERPRETER ===");
+  const rev = evaluateRevenge();
+  console.log(`  Plain Liar {Y,N,G} (classical exclusion):  [${rev.plainLiarExclusion.join(", ") || "∅"}]`);
+  console.log(`  Plain Liar {Y,N,G} (infectious gap):       [${rev.plainLiarInfectiousGap.join(", ") || "∅"}]`);
+  console.log(`  Revenge Question {Y,N,G} (flat 1-level):   [${rev.revengeFlat.join(", ") || "∅"}]`);
+  console.log(
+    `  Revenge (Two-Arrow, Sound interpreter I):  [${rev.twoArrowSound
+      .map((p) => `(I=${p.I}, A=${p.A})`)
+      .join(", ")}]`
+  );
+  console.log(
+    `  Revenge (Two-Arrow, Sound + Total I):      [${rev.twoArrowSoundAndTotal.join(", ") || "∅"}]`
+  );
+
+  console.log("\n=== 5. MULTI-VALUED GAME-SHOW BOARDS ===");
   const boards = [
     [25, 0, 50, 25],
     [0, 25, 60, 75],
@@ -576,9 +795,7 @@ function runCliReport() {
     console.log(
       `  [${b.map((x) => `${x}%`).join(", ")}] -> on-board: [${fmt(
         r.onBoardFixedPoints
-      )}] (${r.onBoardVerdict}) | global: [${fmt(r.allFixedPoints)}] (${
-        r.globalVerdict
-      })`
+      )}] (${r.onBoardVerdict}) | global: [${fmt(r.allFixedPoints)}] (${r.globalVerdict})`
     );
   }
 }
